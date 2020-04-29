@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 
+import os.path
+import json
+
 from qgis.core import Qgis, QgsMessageLog, QgsLocatorFilter, QgsLocatorResult, QgsRectangle, QgsPointXY, \
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+from qgis.PyQt.QtCore import pyqtSignal, QSettings, QTranslator, QCoreApplication, Qt
+from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtWidgets import QAction, QApplication
 
+from .resources import *
 from . networkaccessmanager import NetworkAccessManager, RequestsException
-
-from qgis.PyQt.QtCore import pyqtSignal
-
-import json
+from .locatorfilter_dockwidget import LocatorFilterDockWidget
 
 
 class LocatorFilterPlugin:
@@ -18,17 +22,128 @@ class LocatorFilterPlugin:
 
         self.filter = locatorFilter(self.iface)
 
+        self.plugin_dir = os.path.dirname(__file__)
+        locale = QSettings().value('locale/userLocale')[0:2]
+        locale_path = os.path.join(
+            self.plugin_dir,
+            'i18n',
+            'LocatorFilterPlugin_{}.qm'.format(locale))
+
+        if os.path.exists(locale_path):
+            self.translator = QTranslator()
+            self.translator.load(locale_path)
+            QCoreApplication.installTranslator(self.translator)
+
+        # Declare instance attributes
+        self.actions = []
+        self.menu = self.tr(u'&French Locator Filter')
+        # TODO: We are going to let the user set this up in a future iteration
+        self.toolbar = self.iface.addToolBar(u'FrenchLocatorFilter')
+        self.toolbar.setObjectName(u'FrenchLocatorFilter')
+        self.pluginIsActive = False
+        self.dockwidget = None
+
+
         self.filter.resultProblem.connect(self.show_problem)
         self.iface.registerLocatorFilter(self.filter)
+
+    def tr(self, message):
+        """Get the translation for a string using Qt translation API.
+
+        We implement this ourselves since we do not inherit QObject.
+
+        :param message: String for translation.
+        :type message: str, QString
+
+        :returns: Translated version of message.
+        :rtype: QString
+        """
+        # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
+        return QCoreApplication.translate('FrenchLocatorFilter', message)
+
+    def add_action(
+            self,
+            icon_path,
+            text,
+            callback,
+            enabled_flag=True,
+            add_to_menu=True,
+            add_to_toolbar=True,
+            status_tip=None,
+            whats_this=None,
+            parent=None):
+        """Add a toolbar icon to the toolbar."""
+
+        icon = QIcon(icon_path)
+        action = QAction(icon, text, parent)
+        action.triggered.connect(callback)
+        action.setEnabled(enabled_flag)
+
+        if status_tip is not None:
+            action.setStatusTip(status_tip)
+
+        if whats_this is not None:
+            action.setWhatsThis(whats_this)
+
+        if add_to_toolbar:
+            self.toolbar.addAction(action)
+
+        if add_to_menu:
+            self.iface.addPluginToMenu(
+                self.menu,
+                action)
+
+        self.actions.append(action)
+
+        return action
 
     def show_problem(self, err):
         self.iface.messageBar().pushWarning("French Locator Filter Error", '{}'.format(err))
 
     def initGui(self):
-        pass
+        """Create the menu entries and toolbar icons inside the QGIS GUI."""
+
+        icon_path = ':/plugins/french_locator_filter/icons/icon.svg'
+        self.add_action(
+            icon_path,
+            text=self.tr(u'French Locator Filter'),
+            callback=self.run,
+            parent=self.iface.mainWindow())
+
+    def onClosePlugin(self):
+        """Cleanup necessary items here when plugin dockwidget is closed"""
+
+        # disconnects
+        self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
+        QApplication.restoreOverrideCursor()
+        self.pluginIsActive = False
 
     def unload(self):
+        """Removes the plugin menu item and icon from QGIS GUI."""
+
+        for action in self.actions:
+            self.iface.removePluginMenu(
+                self.tr(u'&French Filter Locator'),
+                action)
+            self.iface.removeToolBarIcon(action)
+        del self.toolbar
+
         self.iface.deregisterLocatorFilter(self.filter)
+
+    def run(self):
+        """Run method that loads and starts the plugin"""
+
+        if not self.pluginIsActive:
+            self.pluginIsActive = True
+
+            if self.dockwidget == None:
+                self.dockwidget = LocatorFilterDockWidget()
+            
+            self.dockwidget.closingPlugin.connect(self.onClosePlugin)
+
+            # TODO: fix to allow choice of dock location
+            self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dockwidget)
+            self.dockwidget.show()
 
 
 class locatorFilter(QgsLocatorFilter):
@@ -64,15 +179,15 @@ class locatorFilter(QgsLocatorFilter):
         self.info('Search url {}'.format(url))
         nam = NetworkAccessManager()
         try:
-            
+
             headers = {b'User-Agent': self.USER_AGENT}
             # use BLOCKING request, as fetchResults already has it's own thread!
             (response, content) = nam.request(url, headers=headers, blocking=True)
-            
+
             if response.status_code == 200:  # other codes are handled by NetworkAccessManager
                 content_string = content.decode('utf-8')
                 locations = json.loads(content_string)
-                
+
                 #loop on features in json collection
                 for loc in locations['features']: 
 
@@ -98,7 +213,7 @@ class locatorFilter(QgsLocatorFilter):
         doc = result.userData
         x = doc['geometry']['coordinates'][0]
         y = doc['geometry']['coordinates'][1]
-  
+
         centerPoint = QgsPointXY(x, y)
 
         dest_crs = QgsProject.instance().crs()
@@ -106,7 +221,7 @@ class locatorFilter(QgsLocatorFilter):
         aTransform = QgsCoordinateTransform(results_crs, dest_crs, QgsProject.instance())
         centerPointProjected = aTransform.transform(centerPoint)
         aTransform.transform(centerPoint)
-        
+
         #centers to adress coordinates
         self.iface.mapCanvas().setCenter(centerPointProjected)
 
