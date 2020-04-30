@@ -37,7 +37,6 @@ class LocatorFilterPlugin:
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&French Locator Filter')
-        # TODO: We are going to let the user set this up in a future iteration
         self.toolbar = self.iface.addToolBar(u'FrenchLocatorFilter')
         self.toolbar.setObjectName(u'FrenchLocatorFilter')
         self.pluginIsActive = False
@@ -130,6 +129,16 @@ class LocatorFilterPlugin:
 
         self.iface.deregisterLocatorFilter(self.filter)
 
+    def click_check_box(self, state):
+        """The function manage the event from the check box"""
+
+        if state == QtCore.Qt.Checked:
+            QApplication.setOverrideCursor(Qt.CrossCursor)
+            tool = "Ok catch tool"
+        else:
+            QApplication.restoreOverrideCursor()
+            tool = "Remove catch tool"
+
     def run(self):
         """Run method that loads and starts the plugin"""
 
@@ -138,10 +147,10 @@ class LocatorFilterPlugin:
 
             if self.dockwidget == None:
                 self.dockwidget = LocatorFilterDockWidget()
-            
-            self.dockwidget.closingPlugin.connect(self.onClosePlugin)
+                self.active_tool = self.iface.mapCanvas().mapTool()
+                self.dockwidget.cb_clic_map.stateChanged.connect(self.click_check_box)
 
-            # TODO: fix to allow choice of dock location
+            self.dockwidget.closingPlugin.connect(self.onClosePlugin)
             self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dockwidget)
             self.dockwidget.show()
 
@@ -151,7 +160,7 @@ class locatorFilter(QgsLocatorFilter):
     USER_AGENT = b'Mozilla/5.0 QGIS LocatorFilter'
 
     SEARCH_URL = 'https://api-adresse.data.gouv.fr/search/?limit=10&autocomplete=1&q='
-    
+
     resultProblem = pyqtSignal(str)
 
     def __init__(self, iface):
