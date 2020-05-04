@@ -236,7 +236,7 @@ class locatorFilter(QgsLocatorFilter):
         #centers to adress coordinates
         self.iface.mapCanvas().setCenter(centerPointProjected)
 
-        # zoom policy has we don't have extent in the results       
+        # zoom policy has we don't have extent in the results  
         scale = 25000
 
         type_adress = doc['properties']['type']
@@ -268,7 +268,6 @@ class CatchTool(QgsMapTool):
 
     def canvasReleaseEvent(self, event):
         """Get the clic from the mouss"""
-        response = ""
 
         if self.dialog.cb_clic_map.isChecked():
             x = event.pos().x()
@@ -285,8 +284,7 @@ class CatchTool(QgsMapTool):
             longitude = wgs84_point[0]
             latitude = wgs84_point[1]
 
-            url = self.REVERSE_URL + '?lon=' + \
-                str(longitude) + '&lat=' + str(latitude)
+            url = self.REVERSE_URL + '?lon=' + str(longitude) + '&lat=' + str(latitude)
             self.info('Reverse url {}'.format(url))
             nam = NetworkAccessManager()
 
@@ -311,11 +309,5 @@ class CatchTool(QgsMapTool):
                 self.info(err)
                 self.resultProblem.emit('{}'.format(err))
 
-
-
     def info(self, msg=""):
-        QgsMessageLog.logMessage(
-            '{} {}'.format(self.__class__.__name__, msg), 
-            'LocatorFilter', 
-            Qgis.Info,
-        )
+        QgsMessageLog.logMessage('{} {}'.format(self.__class__.__name__, msg), 'LocatorFilter', Qgis.Info)
