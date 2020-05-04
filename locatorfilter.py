@@ -5,6 +5,7 @@ import json
 
 from qgis.core import Qgis, QgsMessageLog, QgsLocatorFilter, QgsLocatorResult, QgsRectangle, QgsPointXY, \
     QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+from qgis.gui import QgsMapTool
 from qgis.PyQt.QtCore import pyqtSignal, QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QApplication
@@ -112,7 +113,6 @@ class LocatorFilterPlugin:
     def onClosePlugin(self):
         """Cleanup necessary items here when plugin dockwidget is closed"""
 
-        # disconnects
         self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
         QApplication.restoreOverrideCursor()
         self.pluginIsActive = False
@@ -132,12 +132,14 @@ class LocatorFilterPlugin:
     def click_check_box(self, state):
         """The function manage the event from the check box"""
 
-        if state == QtCore.Qt.Checked:
+        if state == Qt.Checked:
             QApplication.setOverrideCursor(Qt.CrossCursor)
-            tool = "Ok catch tool"
+            tool = CatchTool(self.iface.mapCanvas(), self.dockwidget)
         else:
             QApplication.restoreOverrideCursor()
-            tool = "Remove catch tool"
+            tool = self.active_tool
+
+        self.iface.mapCanvas().setMapTool(tool)
 
     def run(self):
         """Run method that loads and starts the plugin"""
@@ -236,7 +238,7 @@ class locatorFilter(QgsLocatorFilter):
 
         # zoom policy has we don't have extent in the results       
         scale = 25000
-        
+
         type_adress = doc['properties']['type']
 
         if type_adress == 'housenumber' : 
@@ -252,3 +254,68 @@ class locatorFilter(QgsLocatorFilter):
 
     def info(self, msg=""):
         QgsMessageLog.logMessage('{} {}'.format(self.__class__.__name__, msg), 'LocatorFilter', Qgis.Info)
+
+
+class CatchTool(QgsMapTool):
+    """Catch tool"""
+
+    def __init__(self, canvas, dialog):
+        QgsMapTool.__init__(self, canvas)
+        self.canvas = canvas
+        self.dialog = dialog
+        self.USER_AGENT = b'Mozilla/5.0 QGIS LocatorFilter'
+        self.REVERSE_URL = "https://api-adresse.data.gouv.fr/reverse/"
+
+    def canvasReleaseEvent(self, event):
+        """Get the clic from the mouss"""
+        response = ""
+
+        if self.dialog.cb_clic_map.isChecked():
+            x = event.pos().x()
+            y = event.pos().y()
+            crs_project = self.canvas.mapSettings().destinationCrs()
+            x_transform = QgsCoordinateTransform(
+                crs_project,
+                QgsCoordinateReferenceSystem(4326),
+                QgsProject.instance(),
+                )
+
+            point = self.canvas.getCoordinateTransform().toMapCoordinates(x, y)
+            wgs84_point = x_transform.transform(point)
+            longitude = wgs84_point[0]
+            latitude = wgs84_point[1]
+
+            url = self.REVERSE_URL + '?lon=' + \
+                str(longitude) + '&lat=' + str(latitude)
+            self.info('Reverse url {}'.format(url))
+            nam = NetworkAccessManager()
+
+            try:
+                headers = {b'User-Agent': self.USER_AGENT}
+                # use BLOCKING request, as fetchResults already has it's own thread!
+                (response, content) = nam.request(url, headers=headers, blocking=True)
+
+                if response.status_code == 200:  # other codes are handled by NetworkAccessManager
+                    json_data = content.decode('utf-8')
+                    dictionnary_data = json.loads(json_data)
+
+                    if dictionnary_data['features'] != []:
+                        reverse_label = dictionnary_data['features'][0]['properties']['label']
+                        self.dialog.le_input_address.setText(reverse_label)
+                    else:
+                        self.dialog.le_input_address.setText("No address at this location...")
+                        self.info("No address at this location...")
+
+            except RequestsException as err:
+                # Handle exception..
+                self.info(err)
+                self.resultProblem.emit('{}'.format(err))
+
+
+
+    def info(self, msg=""):
+        QgsMessageLog.logMessage(
+            '{} {}'.format(self.__class__.__name__, msg), 
+            'LocatorFilter', 
+            Qgis.Info,
+        )
